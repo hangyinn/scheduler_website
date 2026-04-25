@@ -26,8 +26,8 @@ const creds = resolveCreds();
 export const redis: Redis | null = creds ? new Redis(creds) : null;
 
 export const KEYS = {
-  appointments: "esglobal:appointments",
-  staffProfiles: "esglobal:staffProfiles",
+  appointments: "esglobal:appts.v2",
+  staffProfiles: "esglobal:staff.v2",
 } as const;
 
 /** Names of relevant env vars that are present at runtime (no values) */

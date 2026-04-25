@@ -17,6 +17,7 @@ export type ResolvedStaffProfile = Staff & {
 };
 
 const STORAGE_KEY = "esglobal.staffProfiles.v1";
+const POLL_MS = 4000;
 
 const DEFAULT_BIO: Record<string, string> = {
   emily:
@@ -65,9 +66,10 @@ export function useStaffProfiles() {
   const [profiles, setProfiles] = useState<StaffProfileMap>({});
   const [remote, setRemote] = useState(false);
   const [hydrated, setHydrated] = useState(false);
+  const versionRef = useRef(0);
   const inFlightRef = useRef<Promise<void> | null>(null);
 
-  const pull = useCallback(async () => {
+  const pullFull = useCallback(async () => {
     if (inFlightRef.current) return inFlightRef.current;
     const p = (async () => {
       try {
@@ -76,9 +78,11 @@ export function useStaffProfiles() {
         const data = (await res.json()) as {
           remote: boolean;
           profiles: StaffProfileMap;
+          version?: number;
         };
         if (data.remote) {
           setRemote(true);
+          versionRef.current = data.version ?? 0;
           setProfiles(data.profiles ?? {});
         } else {
           setRemote(false);
@@ -96,6 +100,22 @@ export function useStaffProfiles() {
     return p;
   }, []);
 
+  const checkVersion = useCallback(async () => {
+    if (!remote) return;
+    if (typeof document !== "undefined" && document.hidden) return;
+    try {
+      const res = await fetch("/api/staff?v=1", { cache: "no-store" });
+      if (!res.ok) return;
+      const data = (await res.json()) as { remote: boolean; version?: number };
+      const v = data.version ?? 0;
+      if (data.remote && v !== versionRef.current) {
+        await pullFull();
+      }
+    } catch {
+      // swallow
+    }
+  }, [remote, pullFull]);
+
   const push = useCallback(
     async (next: StaffProfileMap) => {
       if (!remote) {
@@ -108,7 +128,10 @@ export function useStaffProfiles() {
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ profiles: next }),
         });
-        return res.ok;
+        if (!res.ok) return false;
+        const body = (await res.json()) as { version?: number };
+        if (typeof body.version === "number") versionRef.current = body.version;
+        return true;
       } catch {
         return false;
       }
@@ -117,8 +140,24 @@ export function useStaffProfiles() {
   );
 
   useEffect(() => {
-    pull();
-  }, [pull]);
+    pullFull();
+  }, [pullFull]);
+
+  useEffect(() => {
+    if (!remote) return;
+    const id = setInterval(checkVersion, POLL_MS);
+    const onVisibility = () => {
+      if (!document.hidden) checkVersion();
+    };
+    const onFocus = () => checkVersion();
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("focus", onFocus);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [remote, checkVersion]);
 
   const updateProfile = useCallback(
     async (staffId: string, patch: StaffProfileOverride) => {
@@ -146,7 +185,7 @@ export function useStaffProfiles() {
     syncRemote: remote,
     hydrated,
     updateProfile,
-    refresh: pull,
+    refresh: pullFull,
   };
 }
 

@@ -8,6 +8,7 @@
   --border: #e8e0d4;
   --accent: #a8623f;
   --accent-soft: #f4e9df;
+  --ink: #1a1612;
 }
 
 @theme inline {
@@ -20,8 +21,8 @@
   --color-accent-soft: var(--accent-soft);
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system,
     "Segoe UI", Helvetica, Arial, sans-serif;
-  --font-display: var(--font-fraunces), ui-serif, Georgia, "Times New Roman",
-    serif;
+  --font-display: var(--font-bodoni), "Bodoni Moda", "Bodoni 72", "Didot",
+    ui-serif, Georgia, "Times New Roman", serif;
 }
 
 html,
@@ -34,14 +35,21 @@ body {
 .font-display {
   font-family: var(--font-display);
   font-optical-sizing: auto;
-  letter-spacing: -0.015em;
+  letter-spacing: -0.02em;
 }
 
-/* Wordmark — letterspacing for the all-caps brand */
+.font-display-italic {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 400;
+  letter-spacing: -0.005em;
+}
+
 .wordmark {
   font-family: var(--font-display);
-  letter-spacing: 0.18em;
+  letter-spacing: 0.22em;
   font-weight: 500;
+  font-feature-settings: "lnum", "tnum";
 }
 
 /* Editorial marquee on the home page */
@@ -63,6 +71,51 @@ body {
   }
 }
 
+/* Slow rotation for ornament */
+@keyframes slow-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+.slow-spin {
+  animation: slow-spin 60s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .slow-spin {
+    animation: none;
+  }
+}
+
+/* Tasteful film-grain overlay */
+.grain::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.06;
+  mix-blend-mode: multiply;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 200px 200px;
+}
+
+/* Background numerals on staff index */
+.bg-numeral {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 400;
+  font-size: clamp(110px, 22vw, 220px);
+  line-height: 0.85;
+  color: var(--foreground);
+  opacity: 0.05;
+  pointer-events: none;
+  user-select: none;
+  letter-spacing: -0.05em;
+}
+
 /* FullCalendar restyle */
 .fc {
   --fc-border-color: var(--border);
@@ -77,8 +130,8 @@ body {
 .fc .fc-toolbar-title {
   font-family: var(--font-display);
   font-weight: 500;
-  font-size: 1.15rem;
-  letter-spacing: -0.01em;
+  font-size: 1.2rem;
+  letter-spacing: -0.015em;
   color: var(--foreground);
 }
 
@@ -144,7 +197,6 @@ body {
   text-decoration: line-through;
 }
 
-/* Mobile tweaks for FullCalendar — vertical phones */
 @media (max-width: 640px) {
   .fc {
     font-size: 12px;

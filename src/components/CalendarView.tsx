@@ -99,8 +99,15 @@ export function CalendarView({
           interactionPlugin,
           listPlugin,
         ]}
-        initialView={isMobile ? "timeGridDay" : "timeGridWeek"}
+        initialView={isMobile ? "timeGrid3Day" : "timeGridWeek"}
         key={isMobile ? "mobile" : "desktop"}
+        views={{
+          timeGrid3Day: {
+            type: "timeGrid",
+            duration: { days: 3 },
+            buttonText: "3 days",
+          },
+        }}
         headerToolbar={
           isMobile
             ? {
@@ -117,7 +124,7 @@ export function CalendarView({
         footerToolbar={
           isMobile
             ? {
-                center: "timeGridDay,timeGridWeek,listWeek",
+                center: "timeGridDay,timeGrid3Day,listWeek",
               }
             : undefined
         }

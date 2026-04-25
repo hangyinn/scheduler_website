@@ -28,7 +28,7 @@ export type NewAppointmentInput = Omit<
 export type SyncStatus = "loading" | "remote" | "local" | "error";
 
 const STORAGE_KEY = "esglobal.appointments.v1";
-const POLL_MS = 15_000;
+const POLL_MS = 4000;
 
 function loadLocal(): Appointment[] {
   if (typeof window === "undefined") return [];
@@ -55,23 +55,10 @@ export function useAppointments(filterStaffId?: string) {
   const [items, setItems] = useState<Appointment[]>([]);
   const [status, setStatus] = useState<SyncStatus>("loading");
   const remoteRef = useRef(false);
+  const versionRef = useRef(0);
   const inFlightRef = useRef<Promise<void> | null>(null);
 
-  const pushRemote = useCallback(async (next: Appointment[]) => {
-    if (!remoteRef.current) return;
-    try {
-      const res = await fetch("/api/appointments", {
-        method: "PUT",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ items: next }),
-      });
-      if (!res.ok) throw new Error("save failed");
-    } catch {
-      setStatus("error");
-    }
-  }, []);
-
-  const pullRemote = useCallback(async () => {
+  const pullFull = useCallback(async () => {
     if (inFlightRef.current) return inFlightRef.current;
     const p = (async () => {
       try {
@@ -80,9 +67,11 @@ export function useAppointments(filterStaffId?: string) {
         const data = (await res.json()) as {
           remote: boolean;
           items: Appointment[];
+          version?: number;
         };
         if (data.remote) {
           remoteRef.current = true;
+          versionRef.current = data.version ?? 0;
           setItems(data.items ?? []);
           setStatus("remote");
         } else {
@@ -102,22 +91,59 @@ export function useAppointments(filterStaffId?: string) {
     return p;
   }, []);
 
+  const pushRemote = useCallback(async (next: Appointment[]) => {
+    if (!remoteRef.current) return;
+    try {
+      const res = await fetch("/api/appointments", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ items: next }),
+      });
+      if (!res.ok) throw new Error("save failed");
+      const body = (await res.json()) as { version?: number };
+      if (typeof body.version === "number") versionRef.current = body.version;
+    } catch {
+      setStatus("error");
+    }
+  }, []);
+
+  const checkVersion = useCallback(async () => {
+    if (!remoteRef.current) return;
+    if (typeof document !== "undefined" && document.hidden) return;
+    try {
+      const res = await fetch("/api/appointments?v=1", { cache: "no-store" });
+      if (!res.ok) return;
+      const data = (await res.json()) as { remote: boolean; version?: number };
+      const v = data.version ?? 0;
+      if (data.remote && v !== versionRef.current) {
+        await pullFull();
+      }
+    } catch {
+      // swallow — next tick will retry
+    }
+  }, [pullFull]);
+
   // Initial load
   useEffect(() => {
-    pullRemote();
-  }, [pullRemote]);
+    pullFull();
+  }, [pullFull]);
 
-  // Background poll for remote so other devices' edits appear
+  // Polling + visibility refresh
   useEffect(() => {
     if (status !== "remote") return;
-    const id = setInterval(pullRemote, POLL_MS);
-    const onFocus = () => pullRemote();
+    const id = setInterval(checkVersion, POLL_MS);
+    const onVisibility = () => {
+      if (!document.hidden) checkVersion();
+    };
+    const onFocus = () => checkVersion();
+    document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("focus", onFocus);
     return () => {
       clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("focus", onFocus);
     };
-  }, [status, pullRemote]);
+  }, [status, checkVersion]);
 
   // Persist local-only mode to localStorage
   useEffect(() => {
