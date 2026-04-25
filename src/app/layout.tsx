@@ -1,16 +1,29 @@
-import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import type { Metadata, Viewport } from "next";
+import { Inter, Fraunces } from "next/font/google";
 import "./globals.css";
+import { Header } from "@/components/Header";
 
 const inter = Inter({
   variable: "--font-inter",
   subsets: ["latin"],
 });
 
+const fraunces = Fraunces({
+  variable: "--font-fraunces",
+  subsets: ["latin"],
+  axes: ["opsz"],
+});
+
 export const metadata: Metadata = {
-  title: "Plan — A calm scheduler",
+  title: "ES Global Inc. — Studio Scheduling",
   description:
-    "A clean, minimal scheduler for clients. Plan tasks, set durations, and own your day.",
+    "Book and manage appointments with the makeup artists and photographer at ES Global Inc.",
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  themeColor: "#faf7f2",
 };
 
 export default function RootLayout({
@@ -19,8 +32,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${inter.variable} h-full antialiased`}>
-      <body className="min-h-full bg-neutral-50 text-neutral-900">
+    <html
+      lang="en"
+      className={`${inter.variable} ${fraunces.variable} h-full antialiased`}
+    >
+      <body className="min-h-full bg-[var(--background)] text-[var(--foreground)]">
+        <Header />
         {children}
       </body>
     </html>

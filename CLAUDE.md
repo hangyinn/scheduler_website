@@ -4,41 +4,45 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-**Plan** — a single-page client-side scheduling web app. Users open the calendar, click/drag to create tasks (title, notes, start time, duration, color), drag events to reschedule, and check items off. There is no backend; all state lives in `localStorage` under key `plan.tasks.v1`.
+Studio scheduling site for **ES Global Inc.** — five staff members (4 makeup artists + 1 photographer), each with their own calendar page, plus a combined studio calendar. Client-only; appointments persist to `localStorage` under `esglobal.appointments.v1`. No backend, no auth.
 
 ## Commands
 
-- `npm run dev` — start the dev server on http://localhost:3000 (Turbopack)
+- `npm run dev` — dev server on http://localhost:3000 (Turbopack)
 - `npm run build` — production build (also runs Next's TypeScript check)
 - `npm start` — run the built production server
 - `npm run lint` — ESLint via `eslint-config-next`
 
-There is no test runner configured.
+No test runner is configured.
 
 ## Architecture
 
-The app is intentionally small — three layers:
+### Routes
+- `/` — landing: hero + staff grid
+- `/studio` — combined calendar (all staff, color-coded)
+- `/team/[slug]` — per-staff calendar (filter by `staffId`); pre-rendered via `generateStaticParams`
 
-1. **Data layer** (`src/lib/tasks.ts`) — `useTasks()` hook owns the entire app state. It hydrates from `localStorage` on mount (deferred, to avoid SSR mismatch) and writes back on every change. All mutations (`addTask`, `updateTask`, `removeTask`, `toggleDone`) go through this hook. The `ScheduledTask` shape and `TASK_COLORS` palette are exported from here — reuse them, don't duplicate.
+### Data
+- `src/lib/staff.ts` — `STAFF` registry (id/slug/name/role/color/gradient/initials/tagline). **Staff colors and gradients are the visual source of truth** — the calendar event tint, dot indicators, and avatar gradients all read from here. Never hardcode a staff color in a component.
+- `src/lib/appointments.ts` — `Appointment` type + `useAppointments(filterStaffId?)` hook. Hydrates from `localStorage` on mount (deferred to avoid SSR mismatch), writes back on every change. All mutations go through this hook.
 
-2. **View layer** (`src/components/`) — three presentational components, none of them own state:
-   - `Sidebar.tsx` — branding, "New task" button, upcoming-task list. Pure props in/out.
-   - `CalendarView.tsx` — wraps FullCalendar. **Must be loaded with `dynamic(..., { ssr: false })`** because FullCalendar touches the DOM at import time. Plugins used: `daygrid`, `timegrid`, `interaction`, `list`. Translates between FullCalendar's `Date` objects and our ISO-string + duration-minutes representation.
-   - `TaskDialog.tsx` — modal form for create/edit. Uses `datetime-local` inputs; conversion to/from ISO is local to this component.
-
-3. **Page** (`src/app/page.tsx`) — wires the hook to the components. Holds only ephemeral UI state (which task is being edited, dialog open/closed). It is a Client Component (`"use client"`) because it uses hooks.
+### Components
+- `src/components/Header.tsx` — sticky top nav. Desktop: pill-shaped nav links. Mobile (`<lg`): hamburger drawer that locks body scroll while open and closes on route change.
+- `src/components/ScheduleWorkspace.tsx` — orchestration component used by both `/studio` and `/team/[slug]`. Owns dialog state and wires the hook to `CalendarView` + `UpcomingList`. Pass `staffId` to filter and `lockStaff` to hide the staff selector in the dialog.
+- `src/components/CalendarView.tsx` — wraps FullCalendar. **Must be loaded with `dynamic(..., { ssr: false })`** because FullCalendar touches the DOM at import time. The `useIsMobile()` hook drives `initialView`: `timeGridDay` on phones, `timeGridWeek` on desktop. The `key` prop forces a remount when the breakpoint changes so the view actually switches.
+- `src/components/AppointmentDialog.tsx` — modal form. On mobile it slides up from the bottom (`items-end sm:items-center`) and is scrollable; the staff selector is a 2- or 3-column grid of pill-buttons, hidden when `lockStaff` is true.
+- `src/components/UpcomingList.tsx` — pure list of upcoming appointments, used as the right rail on desktop and below the calendar on mobile.
 
 ### Conventions to preserve
 
-- **Time representation:** task times are stored as ISO strings + an integer `durationMinutes`. Don't introduce `endsAt` or store `Date` objects in state — the calendar bridge handles the conversion.
-- **Persistence:** if you change the `ScheduledTask` shape, bump the storage key (e.g. `plan.tasks.v2`) or add a migration in `loadFromStorage`. Never silently break existing users' saved data.
-- **Styling:** Tailwind v4 with the `@theme` block in `src/app/globals.css`. FullCalendar's defaults are restyled there via CSS variables (`--fc-*`) and global selectors — keep calendar styling in `globals.css`, not inline, so the look stays consistent across views.
-- **Font:** Inter, loaded via `next/font/google` in `layout.tsx` and exposed as `--font-inter` / `--font-sans`.
+- **Time representation:** appointments store ISO `start` + integer `durationMinutes`. Don't introduce `endsAt` or store `Date` objects in state — `CalendarView` does the conversion at the boundary.
+- **Persistence:** if you change the `Appointment` shape, bump the storage key (`esglobal.appointments.v2`) or add a migration in `loadFromStorage`. Never silently break saved data.
+- **Adding a staff member:** add an entry to `STAFF` in `src/lib/staff.ts` — that's it. The home grid, header nav, studio legend, and dialog selector all map over `STAFF`. The dynamic route `/team/[slug]` is regenerated automatically.
+- **Mobile-first styling:** every interactive element targets ≥44px tap height (`min-h-11` or padding equivalent). The header drawer, calendar toolbar, and dialog have explicit mobile branches — preserve them when editing.
+- **Typography:** Inter (`--font-sans`) for UI, Fraunces (`--font-display`, via `.font-display`) for headings and the wordmark. Both loaded in `layout.tsx`.
+- **Palette:** ivory background `#faf7f2`, espresso `#1a1612`, copper accent `#a8623f`. Defined as CSS vars in `globals.css` and exposed to Tailwind via the `@theme inline` block — reference them as `bg-[var(--accent)]` etc. instead of hardcoding hex.
+- **FullCalendar styling:** restyled in `globals.css` via `--fc-*` variables and global selectors, with a `@media (max-width: 640px)` block for phone tweaks. Keep calendar styling there, not inline, so the look stays consistent across all three calendar pages.
 
 ## Deployment
 
-The app is a fully static, client-only Next.js build (the `/` route is prerendered as static). Deploy options, easiest first:
-
-- **Vercel** — push the repo to GitHub, then `vercel.com/new` → import. Zero config; `npm run build` is auto-detected.
-- **Netlify / Cloudflare Pages** — same flow; build command `npm run build`, publish directory handled by their Next.js adapter.
-- **Static export** — if a fully static host is needed, add `output: "export"` to `next.config.ts` and serve `out/` from any static host (GitHub Pages, S3, etc.). The app has no server routes, so this works.
+The site is hosted on **Vercel**, connected to the `main` branch of the GitHub repo. Pushing to `main` auto-triggers a production deploy (~60s). The app prerenders all routes statically — no server runtime needed.

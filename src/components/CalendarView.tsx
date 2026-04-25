@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import FullCalendar from "@fullcalendar/react";
 import dayGridPlugin from "@fullcalendar/daygrid";
 import timeGridPlugin from "@fullcalendar/timegrid";
@@ -12,42 +12,59 @@ import type {
   EventDropArg,
 } from "@fullcalendar/core";
 import type { EventResizeDoneArg } from "@fullcalendar/interaction";
-import type { ScheduledTask } from "@/lib/tasks";
+import type { Appointment } from "@/lib/appointments";
+import { getStaffById } from "@/lib/staff";
 
 type Props = {
-  tasks: ScheduledTask[];
+  appointments: Appointment[];
   onSelectRange: (startISO: string, durationMinutes: number) => void;
-  onEventClick: (task: ScheduledTask) => void;
+  onEventClick: (appt: Appointment) => void;
   onEventChange: (
     id: string,
     patch: { start: string; durationMinutes: number },
   ) => void;
 };
 
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 768px)");
+    const update = () => setIsMobile(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+  return isMobile;
+}
+
 export function CalendarView({
-  tasks,
+  appointments,
   onSelectRange,
   onEventClick,
   onEventChange,
 }: Props) {
+  const isMobile = useIsMobile();
+
   const events = useMemo(
     () =>
-      tasks.map((t) => {
-        const start = new Date(t.start);
-        const end = new Date(start.getTime() + t.durationMinutes * 60_000);
+      appointments.map((a) => {
+        const start = new Date(a.start);
+        const end = new Date(start.getTime() + a.durationMinutes * 60_000);
+        const staff = getStaffById(a.staffId);
+        const color = staff?.color ?? "#6b6157";
         return {
-          id: t.id,
-          title: t.title,
+          id: a.id,
+          title: `${a.clientName} · ${a.service}`,
           start: start.toISOString(),
           end: end.toISOString(),
-          backgroundColor: t.color,
-          borderColor: t.color,
+          backgroundColor: color,
+          borderColor: color,
           textColor: "#ffffff",
-          classNames: t.done ? ["fc-event-done"] : [],
-          extendedProps: { description: t.description, done: t.done },
+          classNames: a.status === "completed" ? ["fc-event-completed"] : [],
+          extendedProps: { staffId: a.staffId, service: a.service },
         };
       }),
-    [tasks],
+    [appointments],
   );
 
   const handleSelect = (arg: DateSelectArg) => {
@@ -59,8 +76,8 @@ export function CalendarView({
   };
 
   const handleEventClick = (arg: EventClickArg) => {
-    const task = tasks.find((t) => t.id === arg.event.id);
-    if (task) onEventClick(task);
+    const appt = appointments.find((a) => a.id === arg.event.id);
+    if (appt) onEventClick(appt);
   };
 
   const handleEventChange = (arg: EventDropArg | EventResizeDoneArg) => {
@@ -74,7 +91,7 @@ export function CalendarView({
   };
 
   return (
-    <div className="rounded-2xl bg-white border border-neutral-200 shadow-sm p-4 sm:p-5">
+    <div className="rounded-2xl bg-[var(--surface)] border border-[var(--border)] shadow-sm p-3 sm:p-5">
       <FullCalendar
         plugins={[
           dayGridPlugin,
@@ -82,12 +99,28 @@ export function CalendarView({
           interactionPlugin,
           listPlugin,
         ]}
-        initialView="timeGridWeek"
-        headerToolbar={{
-          left: "prev,next today",
-          center: "title",
-          right: "dayGridMonth,timeGridWeek,timeGridDay,listWeek",
-        }}
+        initialView={isMobile ? "timeGridDay" : "timeGridWeek"}
+        key={isMobile ? "mobile" : "desktop"}
+        headerToolbar={
+          isMobile
+            ? {
+                left: "prev,next",
+                center: "title",
+                right: "today",
+              }
+            : {
+                left: "prev,next today",
+                center: "title",
+                right: "dayGridMonth,timeGridWeek,timeGridDay,listWeek",
+              }
+        }
+        footerToolbar={
+          isMobile
+            ? {
+                center: "timeGridDay,timeGridWeek,listWeek",
+              }
+            : undefined
+        }
         height="auto"
         contentHeight="auto"
         expandRows
@@ -95,11 +128,14 @@ export function CalendarView({
         selectable
         selectMirror
         editable
+        longPressDelay={250}
+        eventLongPressDelay={250}
+        selectLongPressDelay={250}
         dayMaxEvents
-        slotMinTime="06:00:00"
-        slotMaxTime="23:00:00"
+        slotMinTime="07:00:00"
+        slotMaxTime="22:00:00"
         slotDuration="00:30:00"
-        scrollTime="08:00:00"
+        scrollTime="09:00:00"
         firstDay={1}
         allDaySlot={false}
         events={events}
@@ -108,12 +144,6 @@ export function CalendarView({
         eventDrop={handleEventChange}
         eventResize={handleEventChange}
       />
-      <style jsx global>{`
-        .fc-event-done {
-          opacity: 0.55;
-          text-decoration: line-through;
-        }
-      `}</style>
     </div>
   );
 }
