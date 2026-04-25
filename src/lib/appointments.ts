@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 export type AppointmentStatus = "confirmed" | "tentative" | "completed";
 
@@ -25,30 +25,24 @@ export type NewAppointmentInput = Omit<
   status?: AppointmentStatus;
 };
 
-const STORAGE_KEY = "esglobal.appointments.v1";
+export type SyncStatus = "loading" | "remote" | "local" | "error";
 
-function loadFromStorage(): Appointment[] {
+const STORAGE_KEY = "esglobal.appointments.v1";
+const POLL_MS = 15_000;
+
+function loadLocal(): Appointment[] {
   if (typeof window === "undefined") return [];
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter(
-      (a): a is Appointment =>
-        a &&
-        typeof a.id === "string" &&
-        typeof a.staffId === "string" &&
-        typeof a.clientName === "string" &&
-        typeof a.start === "string" &&
-        typeof a.durationMinutes === "number",
-    );
+    return Array.isArray(parsed) ? (parsed as Appointment[]) : [];
   } catch {
     return [];
   }
 }
 
-function saveToStorage(items: Appointment[]) {
+function saveLocal(items: Appointment[]) {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
 }
@@ -59,16 +53,76 @@ function uid() {
 
 export function useAppointments(filterStaffId?: string) {
   const [items, setItems] = useState<Appointment[]>([]);
-  const [hydrated, setHydrated] = useState(false);
+  const [status, setStatus] = useState<SyncStatus>("loading");
+  const remoteRef = useRef(false);
+  const inFlightRef = useRef<Promise<void> | null>(null);
 
-  useEffect(() => {
-    setItems(loadFromStorage());
-    setHydrated(true);
+  const pushRemote = useCallback(async (next: Appointment[]) => {
+    if (!remoteRef.current) return;
+    try {
+      const res = await fetch("/api/appointments", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ items: next }),
+      });
+      if (!res.ok) throw new Error("save failed");
+    } catch {
+      setStatus("error");
+    }
   }, []);
 
+  const pullRemote = useCallback(async () => {
+    if (inFlightRef.current) return inFlightRef.current;
+    const p = (async () => {
+      try {
+        const res = await fetch("/api/appointments", { cache: "no-store" });
+        if (!res.ok) throw new Error("load failed");
+        const data = (await res.json()) as {
+          remote: boolean;
+          items: Appointment[];
+        };
+        if (data.remote) {
+          remoteRef.current = true;
+          setItems(data.items ?? []);
+          setStatus("remote");
+        } else {
+          remoteRef.current = false;
+          setItems(loadLocal());
+          setStatus("local");
+        }
+      } catch {
+        remoteRef.current = false;
+        setItems(loadLocal());
+        setStatus("local");
+      } finally {
+        inFlightRef.current = null;
+      }
+    })();
+    inFlightRef.current = p;
+    return p;
+  }, []);
+
+  // Initial load
   useEffect(() => {
-    if (hydrated) saveToStorage(items);
-  }, [items, hydrated]);
+    pullRemote();
+  }, [pullRemote]);
+
+  // Background poll for remote so other devices' edits appear
+  useEffect(() => {
+    if (status !== "remote") return;
+    const id = setInterval(pullRemote, POLL_MS);
+    const onFocus = () => pullRemote();
+    window.addEventListener("focus", onFocus);
+    return () => {
+      clearInterval(id);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [status, pullRemote]);
+
+  // Persist local-only mode to localStorage
+  useEffect(() => {
+    if (status === "local") saveLocal(items);
+  }, [items, status]);
 
   const visible = useMemo(
     () =>
@@ -76,46 +130,70 @@ export function useAppointments(filterStaffId?: string) {
     [items, filterStaffId],
   );
 
-  const addAppointment = useCallback((input: NewAppointmentInput) => {
-    const item: Appointment = {
-      id: uid(),
-      staffId: input.staffId,
-      clientName: input.clientName,
-      service: input.service,
-      start: input.start,
-      durationMinutes: input.durationMinutes,
-      notes: input.notes,
-      status: input.status ?? "confirmed",
-      createdAt: new Date().toISOString(),
-    };
-    setItems((prev) => [...prev, item]);
-    return item;
-  }, []);
+  const addAppointment = useCallback(
+    (input: NewAppointmentInput) => {
+      const item: Appointment = {
+        id: uid(),
+        staffId: input.staffId,
+        clientName: input.clientName,
+        service: input.service,
+        start: input.start,
+        durationMinutes: input.durationMinutes,
+        notes: input.notes,
+        status: input.status ?? "confirmed",
+        createdAt: new Date().toISOString(),
+      };
+      setItems((prev) => {
+        const next = [...prev, item];
+        pushRemote(next);
+        return next;
+      });
+      return item;
+    },
+    [pushRemote],
+  );
 
   const updateAppointment = useCallback(
     (id: string, patch: Partial<Omit<Appointment, "id" | "createdAt">>) => {
-      setItems((prev) =>
-        prev.map((a) => (a.id === id ? { ...a, ...patch } : a)),
-      );
+      setItems((prev) => {
+        const next = prev.map((a) => (a.id === id ? { ...a, ...patch } : a));
+        pushRemote(next);
+        return next;
+      });
     },
-    [],
+    [pushRemote],
   );
 
-  const removeAppointment = useCallback((id: string) => {
-    setItems((prev) => prev.filter((a) => a.id !== id));
-  }, []);
+  const removeAppointment = useCallback(
+    (id: string) => {
+      setItems((prev) => {
+        const next = prev.filter((a) => a.id !== id);
+        pushRemote(next);
+        return next;
+      });
+    },
+    [pushRemote],
+  );
 
-  const setStatus = useCallback((id: string, status: AppointmentStatus) => {
-    setItems((prev) => prev.map((a) => (a.id === id ? { ...a, status } : a)));
-  }, []);
+  const setApptStatus = useCallback(
+    (id: string, s: AppointmentStatus) => {
+      setItems((prev) => {
+        const next = prev.map((a) => (a.id === id ? { ...a, status: s } : a));
+        pushRemote(next);
+        return next;
+      });
+    },
+    [pushRemote],
+  );
 
   return {
     appointments: visible,
     allAppointments: items,
-    hydrated,
+    syncStatus: status,
+    hydrated: status !== "loading",
     addAppointment,
     updateAppointment,
     removeAppointment,
-    setStatus,
+    setStatus: setApptStatus,
   };
 }

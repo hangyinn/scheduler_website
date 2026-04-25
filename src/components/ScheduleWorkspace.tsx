@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { Plus } from "lucide-react";
+import { Cloud, CloudOff, Plus } from "lucide-react";
 import { useState } from "react";
 import { AppointmentDialog } from "@/components/AppointmentDialog";
 import { UpcomingList } from "@/components/UpcomingList";
@@ -17,6 +17,30 @@ const CalendarView = dynamic(
   { ssr: false },
 );
 
+function SyncBadge({ status }: { status: string }) {
+  if (status === "remote") {
+    return (
+      <span
+        title="Synced across all devices"
+        className="hidden sm:inline-flex items-center gap-1.5 rounded-full bg-emerald-50 text-emerald-800 text-[11px] font-medium px-2.5 py-1.5 border border-emerald-100"
+      >
+        <Cloud size={12} /> Studio sync
+      </span>
+    );
+  }
+  if (status === "local") {
+    return (
+      <span
+        title="Showing only this device. Add a Vercel Marketplace storage (Upstash Redis) to sync across devices."
+        className="hidden sm:inline-flex items-center gap-1.5 rounded-full bg-amber-50 text-amber-800 text-[11px] font-medium px-2.5 py-1.5 border border-amber-100"
+      >
+        <CloudOff size={12} /> This device only
+      </span>
+    );
+  }
+  return null;
+}
+
 type Props = {
   /** When set, only this staff's appointments are shown and new appointments default to this staff */
   staffId?: string;
@@ -28,6 +52,7 @@ export function ScheduleWorkspace({ staffId, lockStaff }: Props) {
   const {
     appointments,
     hydrated,
+    syncStatus,
     addAppointment,
     updateAppointment,
     removeAppointment,
@@ -62,14 +87,17 @@ export function ScheduleWorkspace({ staffId, lockStaff }: Props) {
   return (
     <div className="grid lg:grid-cols-[1fr_320px] gap-5 lg:gap-6">
       <div className="min-w-0">
-        <div className="mb-3 flex items-center justify-between gap-3">
-          <button
-            type="button"
-            onClick={() => openCreate()}
-            className="inline-flex items-center gap-1.5 rounded-full bg-[var(--foreground)] text-[#fffaf2] text-sm font-medium px-4 py-2.5 hover:opacity-90 transition shadow-sm min-h-11"
-          >
-            <Plus size={15} /> New appointment
-          </button>
+        <div className="mb-3 flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => openCreate()}
+              className="inline-flex items-center gap-1.5 rounded-full bg-[var(--foreground)] text-[#fffaf2] text-sm font-medium px-4 py-2.5 hover:opacity-90 transition shadow-sm min-h-11"
+            >
+              <Plus size={15} /> New appointment
+            </button>
+            <SyncBadge status={syncStatus} />
+          </div>
           {isStudio ? (
             <div className="hidden sm:flex items-center gap-3 text-[11px] text-[var(--muted)]">
               {STAFF.map((s) => (
